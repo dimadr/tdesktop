@@ -1,10 +1,15 @@
 name: Telegramita 7.4.6 Windows x64 Release
 'on':
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      qt_only:
+        description: Prepare only the Windows x64 Qt cache
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: telegramita-windows-x64-release
+  group: telegramita-windows-x64-release${{ inputs.qt_only && '-qt-only' || '' }}
   cancel-in-progress: false
 jobs:
   base:
@@ -35,6 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: '& D:\TBuild\tdesktop\ci\telegramita\windows.ps1 -Group base'
   media:
+    if: "!${ inputs.qt_only }"
     needs: [base]
     runs-on: windows-2025-vs2026
     timeout-minutes: 300
@@ -116,6 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: '& D:\TBuild\tdesktop\ci\telegramita\windows.ps1 -Group qt'
   rust:
+    if: "!${ inputs.qt_only }"
     needs: [base]
     runs-on: windows-2025-vs2026
     timeout-minutes: 300
