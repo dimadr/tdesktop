@@ -1,0 +1,90 @@
+name: Telegramita Windows x64 preflight
+'on':
+  push:
+    branches: [telegramita/7.4.6-preflight]
+    paths: [.github/workflows/telegramita-preflight.yml]
+permissions:
+  contents: read
+env:
+  PROBE_ASSET: '795619254'
+  PROBE_SHA256: 9fd7b7bdc931fea51f57a1cb59bef618ff287f56bd547538bdd0a07dd02aac9a
+jobs:
+  runner-and-upload:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - name: Measure available volumes and check the x64 toolchain
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ARCH -ne 'X64') { throw "Unexpected runner architecture: $env:RUNNER_ARCH" }
+          Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' |
+            Select-Object DeviceID, @{n='FreeGiB';e={[math]::Round($_.FreeSpace / 1GB, 2)}}, @{n='SizeGiB';e={[math]::Round($_.Size / 1GB, 2)}} |
+            Format-Table -AutoSize
+          Get-CimInstance Win32_ComputerSystem |
+            Select-Object @{n='RAMGiB';e={[math]::Round($_.TotalPhysicalMemory / 1GB, 2)}}, NumberOfLogicalProcessors |
+            Format-Table -AutoSize
+          Get-CimInstance Win32_OperatingSystem |
+            Select-Object @{n='AvailableRAMGiB';e={[math]::Round($_.FreePhysicalMemory / 1MB, 2)}} |
+            Format-Table -AutoSize
+          Write-Host "Image: $env:ImageOS $env:ImageVersion; workspace: $env:GITHUB_WORKSPACE; temp: $env:RUNNER_TEMP"
+          $vswhere = Join-Path "${env:ProgramFiles(x86)}" 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -version '[18,19)' -requires Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'VS 2026 with the 14.44 toolset is unavailable' }
+          $bat = Join-Path $env:RUNNER_TEMP 'toolchain-probe.cmd'
+          @"
+          @echo off
+          call "$vs\VC\Auxiliary\Build\vcvarsall.bat" x64 10.0.26100.0 -vcvars_ver=14.44
+          if errorlevel 1 exit /b 1
+          echo VCToolsVersion=%VCToolsVersion%
+          echo WindowsSDKVersion=%WindowsSDKVersion%
+          where cl
+          if errorlevel 1 exit /b 1
+          where link
+          "@ | Set-Content -LiteralPath $bat -Encoding ascii
+          $toolchain = & cmd.exe /d /c $bat
+          $initExitCode = $LASTEXITCODE
+          $toolchain | Write-Output
+          if ($initExitCode -ne 0 -or ($toolchain -join "`n") -notmatch '(?m)^VCToolsVersion=14[.]44[.]' -or ($toolchain -join "`n") -notmatch '(?m)^WindowsSDKVersion=10[.]0[.]26100[.]0') { throw 'Required MSVC/SDK versions were not selected' }
+          cmake --version
+          ninja --version
+          py -3.10 --version
+      - name: Read the WD sample from the unpublished draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'telegramita-cache-probe'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $sample = Join-Path $dir 'cache-transfer-probe.zip'
+          $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/assets/$env:PROBE_ASSET"
+          & curl.exe -fsSL --retry 2 --max-time 60 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/octet-stream' --write-out 'Draft transfer: %{size_download} bytes in %{time_total}s (%{speed_download} B/s)\n' -o $sample $uri
+          if ($LASTEXITCODE -ne 0 -or (Get-FileHash $sample).Hash -ne $env:PROBE_SHA256) { throw 'Draft asset restore or hash verification failed' }
+      - name: Save the sample in Actions cache
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/telegramita-cache-probe
+          key: telegramita-preflight-x64-${{ github.run_id }}-${{ github.run_attempt }}
+  fresh-runner-restore:
+    needs: runner-and-upload
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - name: Restore the exact key on a fresh Windows VM
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/telegramita-cache-probe
+          key: telegramita-preflight-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Verify the restored data
+        shell: pwsh
+        run: |
+          $sample = Join-Path $env:RUNNER_TEMP 'telegramita-cache-probe/cache-transfer-probe.zip'
+          if ((Get-FileHash $sample).Hash -ne $env:PROBE_SHA256) { throw 'Restored cache SHA-256 mismatch' }
+          Get-FileHash $sample
+      - name: Make the verified sample downloadable to WD
+        uses: actions/upload-artifact@v7
+        with:
+          name: telegramita-cache-probe-return
+          path: ${{ runner.temp }}/telegramita-cache-probe/cache-transfer-probe.zip
+          if-no-files-found: error
+          retention-days: 1
