@@ -40,7 +40,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: '& D:\TBuild\tdesktop\ci\telegramita\windows.ps1 -Group base'
   media:
-    if: "!${ inputs.qt_only }"
+    if: inputs.qt_only == false
     needs: [base]
     runs-on: windows-2025-vs2026
     timeout-minutes: 300
@@ -122,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: '& D:\TBuild\tdesktop\ci\telegramita\windows.ps1 -Group qt'
   rust:
-    if: "!${ inputs.qt_only }"
+    if: inputs.qt_only == false
     needs: [base]
     runs-on: windows-2025-vs2026
     timeout-minutes: 300
