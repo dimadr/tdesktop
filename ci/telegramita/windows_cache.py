@@ -41,17 +41,25 @@ def checksum(path):
 
 
 def key(group=None):
-    if group in ('base', 'media', 'rtc', 'rust'):
-        files = ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
-                 'Telegram/build/qt_version.py', 'ci/telegramita/windows.ps1')
-        prepare, *inputs = (
-            (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
-        )
-        qt_start = prepare.index(b"stage('qt_' + qt")
-        qt_end = prepare.index(b"stage('tg_owt'", qt_start)
-        recipe = hashlib.sha256(b''.join([prepare[:qt_start], prepare[qt_end:], *inputs]))
-        if recipe.hexdigest() == '1e42bc02be42eb9ae078a3b26b50d57af08ecc8231da6e97ca87a0c42ec1b0fb':
-            return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
+    files = ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
+             'Telegram/build/qt_version.py', 'ci/telegramita/windows.ps1')
+    prepare, msvc, qt, runner = (
+        (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
+    )
+    dependency_runner, separator, _ = runner.partition(b'\n$sourceRevision =')
+    if separator:
+        if group in (None, 'qt'):
+            recipe = hashlib.sha256(prepare + msvc + qt + dependency_runner).hexdigest()
+            if recipe == '3c5fecf755c6e5e7855b3a1dc8d4fc60bc295385a3e256218b698d835a09d023':
+                return 'acf2be2ca9b220a7335613bc'
+        elif group in ('base', 'media', 'rtc', 'rust'):
+            qt_start = prepare.index(b"stage('qt_' + qt")
+            qt_end = prepare.index(b"stage('tg_owt'", qt_start)
+            recipe = hashlib.sha256(
+                prepare[:qt_start] + prepare[qt_end:] + msvc + qt + dependency_runner
+            ).hexdigest()
+            if recipe == '079ac57872d60ab1317c04ba0cce2c46a83199de1539084c87892f17d5114fb5':
+                return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
     digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-release-d-build-v1')
     for name in ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
                  'Telegram/build/qt_version.py', 'ci/telegramita/windows_cache.py',
@@ -220,12 +228,39 @@ def publish(group, work, upload):
     print(f'CACHE SAVE {group} {archive.stat().st_size} bytes {key(group)}', flush=True)
 
 
+def verify_sources(repo, expected):
+    def git(*args):
+        return subprocess.check_output(['git', '-C', str(repo), *args])
+
+    head = git('rev-parse', 'HEAD').strip().decode('ascii')
+    if head != expected:
+        raise ValueError(f'{repo}: expected {expected}, found {head}')
+    count = 0
+    for entry in git('ls-tree', '-rz', 'HEAD').split(b'\0'):
+        if not entry:
+            continue
+        object_info, file_path = entry.split(b'\t', 1)
+        mode, _, revision = object_info.split()
+        if mode == b'160000':
+            submodule = repo / os.fsdecode(file_path)
+            if not (submodule / '.git').exists():
+                raise ValueError(f'{submodule}: submodule has not been initialized')
+            count += 1 + verify_sources(submodule, revision.decode('ascii'))
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('inputs', 'save', 'export', 'key', 'stages'))
+    parser.add_argument('action', choices=('inputs', 'save', 'export', 'key', 'stages', 'verify-sources'))
     parser.add_argument('group', choices=(*STAGES, 'app'), nargs='?', default='app')
     parser.add_argument('--destination', type=Path)
     options = parser.parse_args()
+    if options.action == 'verify-sources':
+        count = verify_sources(SOURCE, os.environ['GITHUB_SHA'])
+        if not count:
+            raise ValueError('No pinned submodules were found')
+        print(f'Verified root at {os.environ["GITHUB_SHA"]} and {count} pinned recursive submodules')
+        return
     if options.action == 'key':
         print(key())
         return

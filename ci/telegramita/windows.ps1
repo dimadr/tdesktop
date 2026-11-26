@@ -106,9 +106,9 @@ if ($Group -ne 'app') {
     return
 }
 
-$submodules = & git -C $source submodule status --recursive
-if ($LASTEXITCODE -ne 0 -or ($submodules -match '^[-+U]')) { throw 'Pinned submodule verification failed' }
-Write-Host "Verified $($submodules.Count) recursive submodule entries"
+$sourceRevision = & python $cache verify-sources
+if ($LASTEXITCODE -ne 0) { throw 'Pinned submodule verification failed' }
+$sourceRevision | Write-Host
 if (!(Select-String -Quiet -Path "$source\Telegram\build\version" -Pattern '^AppVersionStr\s+7\.4\.6\s*$')) { throw 'Wrong Telegram version' }
 $zip = Join-Path $scratch 'mieru.zip'
 $mieru = Join-Path $source 'tools\mieru\3.40.0'
