@@ -115,7 +115,8 @@ $mieru = Join-Path $source 'tools\mieru\3.40.0'
 $uri = 'https://github.com/enfein/mieru/releases/download/v3.40.0/mieru_3.40.0_windows_amd64.zip'
 & curl.exe -fLsS --retry 3 --retry-all-errors --max-time 180 -o $zip $uri
 if ($LASTEXITCODE -ne 0 -or (Get-FileHash $zip).Hash -ne 'C0DFEBC250678257A61DC371E9BAE9BE6789EC455D4E78CACBDB3450A32CCE38') { throw 'Mieru ZIP verification failed' }
-Expand-Archive -LiteralPath $zip -DestinationPath $mieru
+& python -m zipfile -e $zip $mieru
+if ($LASTEXITCODE -ne 0) { throw 'Mieru ZIP extraction failed' }
 $expectedMieru = 'C120FE9389E034AC2C9A405FAF58E99BF3A7A5EA9075808BE20622FC6494BF0B'
 if ((Get-FileHash "$mieru\mieru.exe").Hash -ne $expectedMieru) { throw 'Mieru runtime hash mismatch' }
 Assert-PeX64 "$mieru\mieru.exe"

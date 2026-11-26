@@ -577,7 +577,7 @@ win:
 stage('jom', """
 win:
     powershell -Command "iwr -OutFile ./jom.zip https://master.qt.io/official_releases/jom/jom_1_1_3.zip"
-    powershell -Command "Expand-Archive -LiteralPath ./jom.zip -DestinationPath ./jom -ErrorAction Stop"
+    python -m zipfile -e jom.zip jom
     if not exist jom\\jom.exe exit /b 1
     del jom.zip
 """, 'ThirdParty')
