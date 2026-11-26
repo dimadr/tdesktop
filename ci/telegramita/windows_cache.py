@@ -47,19 +47,14 @@ def key(group=None):
         (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
     )
     dependency_runner, separator, _ = runner.partition(b'\n$sourceRevision =')
-    if separator:
-        if group in (None, 'qt'):
-            recipe = hashlib.sha256(prepare + msvc + qt + dependency_runner).hexdigest()
-            if recipe == '3c5fecf755c6e5e7855b3a1dc8d4fc60bc295385a3e256218b698d835a09d023':
-                return 'acf2be2ca9b220a7335613bc'
-        elif group in ('base', 'media', 'rtc', 'rust'):
-            qt_start = prepare.index(b"stage('qt_' + qt")
-            qt_end = prepare.index(b"stage('tg_owt'", qt_start)
-            recipe = hashlib.sha256(
-                prepare[:qt_start] + prepare[qt_end:] + msvc + qt + dependency_runner
-            ).hexdigest()
-            if recipe == '079ac57872d60ab1317c04ba0cce2c46a83199de1539084c87892f17d5114fb5':
-                return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
+    if separator and group in ('base', 'media', 'rtc', 'rust'):
+        qt_start = prepare.index(b"stage('qt_' + qt")
+        qt_end = prepare.index(b"stage('tg_owt'", qt_start)
+        recipe = hashlib.sha256(
+            prepare[:qt_start] + prepare[qt_end:] + msvc + qt + dependency_runner
+        ).hexdigest()
+        if recipe == '079ac57872d60ab1317c04ba0cce2c46a83199de1539084c87892f17d5114fb5':
+            return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
     digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-release-d-build-v1')
     for name in ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
                  'Telegram/build/qt_version.py', 'ci/telegramita/windows_cache.py',
@@ -177,7 +172,7 @@ def roots(group):
             yield p
 
 
-def selected_files(path):
+def selected_files(path, preserve_installation=False):
     if not path.exists():
         raise ValueError(f'Expected cache output missing: {path}')
     if path.is_file():
@@ -185,12 +180,13 @@ def selected_files(path):
         return
     for location, folders, names in os.walk(path):
         yield Path(location)
-        folders[:] = [d for d in folders if d.lower() not in SKIP_DIRS]
+        if not preserve_installation:
+            folders[:] = [d for d in folders if d.lower() not in SKIP_DIRS]
         for name in names:
             item = Path(location) / name
-            if name.lower() in {'.git', 'cmakecache.txt'} or item.suffix.lower() in SKIP_EXTENSIONS:
-                continue
-            yield item
+            is_intermediate = name.lower() in {'.git', 'cmakecache.txt'} or item.suffix.lower() in SKIP_EXTENSIONS
+            if preserve_installation or not is_intermediate:
+                yield item
 
 
 def publish(group, work, upload):
@@ -198,7 +194,7 @@ def publish(group, work, upload):
     with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED,
                          compresslevel=1, strict_timestamps=False) as output:
         for path in roots(group):
-            for item in selected_files(path):
+            for item in selected_files(path, preserve_installation=group == "qt"):
                 output.write(item, item.relative_to(ROOT).as_posix())
     parts = []
     run = os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT']
