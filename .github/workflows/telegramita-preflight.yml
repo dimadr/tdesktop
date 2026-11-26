@@ -2,7 +2,6 @@ name: Telegramita Windows x64 preflight
 'on':
   push:
     branches: [telegramita/7.4.6-preflight]
-    paths: [.github/workflows/telegramita-preflight.yml]
 permissions:
   contents: read
 env:
