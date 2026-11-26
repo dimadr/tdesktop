@@ -89,9 +89,9 @@ Measure-Step 'restore' {
 }
 if ($Group -ne 'app') {
     if ($state -match "^CACHE HIT $Group ") { return }
-    if ($Group -eq 'qt') {
+    if (!(Test-Path "$source\cmake\external\angle\qt.cmake")) {
         & git -C $source submodule update --init --depth 1 cmake
-        if ($LASTEXITCODE -ne 0) { throw 'Qt helper submodule checkout failed' }
+        if ($LASTEXITCODE -ne 0) { throw 'CMake helper submodule checkout failed' }
     }
     Check-Disk $minimum[$Group]
     $stages = & python $cache stages $Group
