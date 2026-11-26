@@ -577,7 +577,8 @@ win:
 stage('jom', """
 win:
     powershell -Command "iwr -OutFile ./jom.zip https://master.qt.io/official_releases/jom/jom_1_1_3.zip"
-    powershell -Command "Expand-Archive ./jom.zip"
+    powershell -Command "Expand-Archive -LiteralPath ./jom.zip -DestinationPath ./jom -ErrorAction Stop"
+    if not exist jom\\jom.exe exit /b 1
     del jom.zip
 """, 'ThirdParty')
 
@@ -719,22 +720,6 @@ mac:
 stage('openssl3', """
     git clone -b openssl-3.5.9 https://github.com/openssl/openssl openssl3
     cd openssl3
-win32:
-    perl Configure no-shared no-tests debug-VC-WIN32 /FS
-win64:
-    perl Configure no-shared no-tests debug-VC-WIN64A /FS
-winarm:
-    perl Configure no-shared no-tests debug-VC-WIN64-ARM /FS
-win:
-    jom -j%NUMBER_OF_PROCESSORS% build_libs
-    mkdir out.dbg
-    move libcrypto.lib out.dbg
-    move libssl.lib out.dbg
-    move ossl_static.pdb out.dbg
-release:
-    move out.dbg\\ossl_static.pdb out.dbg\\ossl_static
-    jom clean
-    move out.dbg\\ossl_static out.dbg\\ossl_static.pdb
 win32_release:
     perl Configure no-shared no-tests VC-WIN32 /FS
 win64_release:
@@ -742,7 +727,7 @@ win64_release:
 winarm_release:
     perl Configure no-shared no-tests VC-WIN64-ARM /FS /Gs4096
 win_release:
-    jom -j%NUMBER_OF_PROCESSORS% build_libs
+    "%THIRDPARTY_DIR%\\jom\\jom.exe" -j%NUMBER_OF_PROCESSORS% build_libs
     mkdir out
     move libcrypto.lib out
     move libssl.lib out
@@ -1876,28 +1861,7 @@ win:
     %THIRDPARTY_DIR%\\msys64\\usr\\bin\\sed -i "s/STREQUAL/MATCHES/" td/generate/CMakeLists.txt
     mkdir out
     cd out
-    mkdir Debug
-    cd Debug
-    cmake ^
-        -DOPENSSL_FOUND=1 ^
-        -DOPENSSL_INCLUDE_DIR=%OPENSSL_DIR%\\include ^
-        -DOPENSSL_CRYPTO_LIBRARY="%OPENSSL_LIBS_DIR%.dbg\\libcrypto.lib" ^
-        -DZLIB_FOUND=1 ^
-        -DZLIB_INCLUDE_DIR=%ZLIB_LIBS_DIR% ^
-        -DZLIB_LIBRARIES="%ZLIB_LIBS_DIR%\\Debug\\libzsd.lib" ^
-        -DCMAKE_CONFIGURATION_TYPES=Debug ^
-        -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>" ^
-        -DCMAKE_POLICY_DEFAULT_CMP0091=NEW ^
-        -DCMAKE_C_FLAGS="/DZLIB_WINAPI" ^
-        -DCMAKE_CXX_FLAGS="/DZLIB_WINAPI" ^
-        -DCMAKE_EXE_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
-        -DCMAKE_SHARED_LINKER_FLAGS="/SAFESEH:NO Ws2_32.lib Gdi32.lib Advapi32.lib Crypt32.lib User32.lib %OPENSSL_LIBS_DIR%.dbg\\libssl.lib" ^
-        -DTD_ENABLE_MULTI_PROCESSOR_COMPILATION=ON ^
-        -DTD_E2E_ONLY=ON ^
-        ../..
-    cmake --build . --config Debug
 release:
-    cd ..
     mkdir Release
     cd Release
     cmake ^
