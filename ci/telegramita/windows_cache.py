@@ -211,7 +211,7 @@ def publish(group, work, upload):
             fragment.unlink()
             count += 1
     manifest = work / 'manifest.json'
-    manifest.write_text(json.dumps({'group': group, 'key': key(), 'sha256': checksum(archive),
+    manifest.write_text(json.dumps({'group': group, 'key': key(group), 'sha256': checksum(archive),
                                     'bytes': archive.stat().st_size, 'parts': parts}), encoding='utf-8')
     send(manifest, marker(group), upload, work)
     print(f'CACHE SAVE {group} {archive.stat().st_size} bytes {key(group)}', flush=True)
