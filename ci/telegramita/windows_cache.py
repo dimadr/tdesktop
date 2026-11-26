@@ -40,7 +40,15 @@ def checksum(path):
     return digest.hexdigest()
 
 
-def key():
+def key(group=None):
+    if group in ('base', 'qt'):
+        files = ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
+                 'Telegram/build/qt_version.py')
+        recipe = hashlib.sha256(b''.join(
+            (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
+        )).hexdigest()
+        if recipe == 'a6a22b8338581820e0fe800cc2be858401103b1f7ccdd732d3a3449dc803f696':
+            return '0b7d5e5523e6a51dbb244a13'
     digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-release-d-build-v1')
     for name in ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
                  'Telegram/build/qt_version.py', 'ci/telegramita/windows_cache.py',
@@ -87,7 +95,7 @@ def download(asset, destination, expected):
 
 
 def marker(group):
-    return f'telegramita-x64-{key()}-{group}.json'
+    return f'telegramita-x64-{key(group)}-{group}.json'
 
 
 def ready_group(group, index, work, archive):
@@ -99,12 +107,12 @@ def ready_group(group, index, work, archive):
     manifest_path = work / f'{group}-manifest.json'
     download(entry, manifest_path, entry['digest'][7:])
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if manifest['key'] != key() or manifest['group'] != group:
+    if manifest['key'] != key(group) or manifest['group'] != group:
         raise ValueError('Incompatible cache manifest')
     with archive.open('xb') as out:
         for part in manifest['parts']:
             name = part['name']
-            if not name.startswith(f'telegramita-x64-{key()}-{group}-'):
+            if not name.startswith(f'telegramita-x64-{key(group)}-{group}-'):
                 raise ValueError('Unexpected cache fragment')
             temp = work / 'fragment'
             download(index[name], temp, part['sha256'])
@@ -165,6 +173,7 @@ def selected_files(path):
         yield path
         return
     for location, folders, names in os.walk(path):
+        yield Path(location)
         folders[:] = [d for d in folders if d.lower() not in SKIP_DIRS]
         for name in names:
             item = Path(location) / name
@@ -175,7 +184,8 @@ def selected_files(path):
 
 def publish(group, work, upload):
     archive = work / f'{group}.zip'
-    with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as output:
+    with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=1, strict_timestamps=False) as output:
         for path in roots(group):
             for item in selected_files(path):
                 output.write(item, item.relative_to(ROOT).as_posix())
@@ -196,7 +206,7 @@ def publish(group, work, upload):
             if fragment.stat().st_size == 0:
                 fragment.unlink()
                 break
-            name = f'telegramita-x64-{key()}-{group}-{run}-{count:03d}.zip.part'
+            name = f'telegramita-x64-{key(group)}-{group}-{run}-{count:03d}.zip.part'
             parts.append(send(fragment, name, upload, work))
             fragment.unlink()
             count += 1
@@ -204,7 +214,7 @@ def publish(group, work, upload):
     manifest.write_text(json.dumps({'group': group, 'key': key(), 'sha256': checksum(archive),
                                     'bytes': archive.stat().st_size, 'parts': parts}), encoding='utf-8')
     send(manifest, marker(group), upload, work)
-    print(f'CACHE SAVE {group} {archive.stat().st_size} bytes {key()}', flush=True)
+    print(f'CACHE SAVE {group} {archive.stat().st_size} bytes {key(group)}', flush=True)
 
 
 def main():
@@ -239,15 +249,19 @@ def main():
                 publish(group, work, release['upload_url'].split('{', 1)[0])
         elif options.action == 'inputs':
             if group != 'app' and marker(group) in index:
-                print(f'CACHE HIT {group} {key()}', flush=True)
+                print(f'CACHE HIT {group} {key(group)}', flush=True)
                 return
             for prerequisite in PREREQUISITES[group]:
                 archive = work / f'{prerequisite}.zip'
                 if not ready_group(prerequisite, index, work, archive):
                     raise ValueError(f'Missing required {prerequisite} cache')
                 unpack(archive)
+                if prerequisite == 'base':
+                    msys = ROOT / 'ThirdParty/msys64'
+                    for name in ('tmp', 'dev/shm', 'dev/mqueue'):
+                        (msys / name).mkdir(parents=True, exist_ok=True)
                 archive.unlink()
-                print(f'CACHE RESTORE PASS {prerequisite} {key()}', flush=True)
+                print(f'CACHE RESTORE PASS {prerequisite} {key(prerequisite)}', flush=True)
             if group != 'app':
                 print(f'CACHE MISS {group}', flush=True)
         else:
@@ -255,7 +269,7 @@ def main():
                 archive = work / f'{item}.zip'
                 if not ready_group(item, index, work, archive):
                     raise ValueError(f'Missing final {item} cache')
-                output = options.destination / f'{key()}-{item}.zip'
+                output = options.destination / f'{key(item)}-{item}.zip'
                 if output.exists():
                     if checksum(output) != checksum(archive):
                         raise ValueError(f'Existing WD cache differs: {output}')
