@@ -126,11 +126,16 @@ Write-Host "Mieru runtime: $version"
 Check-Disk $minimum[$Group]
 $build = Join-Path $root 'out'
 $config = "cmake -S $source -B $build -G ""Visual Studio 18 2026"" -A x64 -T ""v143,version=14.44.35207"" -DCMAKE_SYSTEM_VERSION=10.0.26100.0 -DCMAKE_CONFIGURATION_TYPES=Release -DDESKTOP_APP_DISABLE_AUTOUPDATE=ON -DTDESKTOP_API_TEST=ON"
-$config += ' -DDESKTOP_APP_ENABLE_LTO=OFF'
+$config += ' -DDESKTOP_APP_ENABLE_LTO=OFF -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT:STRING='
 $compileTarget = "cmake --build $build --config Release --target Telegram"
 $compile = "$compileTarget --parallel 2 -- /nodeReuse:false /clp:PerformanceSummary"
 $env:_CL_ = '/MP2'
-Measure-Step 'configure' { Invoke-Native @($config,'exit /b %ERRORLEVEL%') 'configure' }
+Measure-Step 'configure' {
+    Invoke-Native @($config,'exit /b %ERRORLEVEL%') 'configure'
+    if (!(Select-String -Quiet -LiteralPath "$build\CMakeCache.txt" -Pattern '^CMAKE_MSVC_DEBUG_INFORMATION_FORMAT:STRING=$')) {
+        throw 'Release was configured with MSVC debug information'
+    }
+}
 Measure-Step 'build' {
     try {
         Invoke-Native @($compile,'exit /b %ERRORLEVEL%') 'release'
