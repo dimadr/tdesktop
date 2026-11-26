@@ -47,6 +47,10 @@ def key(group=None):
         (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
     )
     dependency_runner, separator, _ = runner.partition(b'\n$sourceRevision =')
+    if separator and group in (None, 'qt'):
+        recipe = hashlib.sha256(prepare + msvc + qt + dependency_runner).hexdigest()
+        if recipe == '3c5fecf755c6e5e7855b3a1dc8d4fc60bc295385a3e256218b698d835a09d023':
+            return 'b6300bcdd7b9b1a7f6a85a24'
     if separator and group in ('base', 'media', 'rtc', 'rust'):
         qt_start = prepare.index(b"stage('qt_' + qt")
         qt_end = prepare.index(b"stage('tg_owt'", qt_start)

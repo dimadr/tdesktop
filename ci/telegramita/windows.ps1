@@ -126,9 +126,26 @@ Write-Host "Mieru runtime: $version"
 Check-Disk $minimum[$Group]
 $build = Join-Path $root 'out'
 $config = "cmake -S $source -B $build -G ""Visual Studio 18 2026"" -A x64 -T ""v143,version=14.44.35207"" -DCMAKE_SYSTEM_VERSION=10.0.26100.0 -DCMAKE_CONFIGURATION_TYPES=Release -DDESKTOP_APP_DISABLE_AUTOUPDATE=ON -DTDESKTOP_API_TEST=ON"
-$compile = "cmake --build $build --config Release --target Telegram --parallel 3"
+$config += ' -DDESKTOP_APP_ENABLE_LTO=OFF'
+$compileTarget = "cmake --build $build --config Release --target Telegram"
+$compile = "$compileTarget --parallel 2 -- /nodeReuse:false /clp:PerformanceSummary"
+$env:_CL_ = '/MP2'
 Measure-Step 'configure' { Invoke-Native @($config,'exit /b %ERRORLEVEL%') 'configure' }
-Measure-Step 'build' { Invoke-Native @($compile,'exit /b %ERRORLEVEL%') 'release' }
+Measure-Step 'build' {
+    try {
+        Invoke-Native @($compile,'exit /b %ERRORLEVEL%') 'release'
+    } catch {
+        $memoryError = Select-String -Quiet -LiteralPath "$scratch\release.log","$scratch\release.log.stderr" -Pattern '\berror C(?:1060|1076|3859)\b'
+        if (!$memoryError) { throw }
+        Write-Host 'Retrying the existing build tree with one compiler process'
+        Get-CimInstance -ClassName Win32_OperatingSystem |
+            Select-Object FreePhysicalMemory,FreeVirtualMemory,TotalVirtualMemorySize |
+            Format-List | Out-Host
+        $env:_CL_ = '/MP1'
+        $script:compile = "$compileTarget --parallel 1 -- /nodeReuse:false /clp:PerformanceSummary"
+        Invoke-Native @($script:compile,'exit /b %ERRORLEVEL%') 'release-retry'
+    }
+}
 $before = Get-ProgramTree $build
 if (!$before) { throw 'No build output to verify' }
 Measure-Step 'noop' { Invoke-Native @($compile,'exit /b %ERRORLEVEL%') 'noop' }
