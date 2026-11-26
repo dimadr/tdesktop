@@ -244,6 +244,17 @@ def verify_sources(repo, expected):
         if mode == b'160000':
             submodule = repo / os.fsdecode(file_path)
             if not (submodule / '.git').exists():
+                module_config = git('config', '--blob', 'HEAD:.gitmodules', '--null', '--list')
+                settings = {
+                    key: value for setting in module_config.split(b'\0') if setting
+                    for key, _, value in [setting.partition(b'\n')]
+                }
+                omitted = any(key.endswith(b'.path') and value == file_path
+                              and settings.get(key.removesuffix(b'.path') + b'.update') == b'none'
+                              for key, value in settings.items())
+                if omitted:
+                    print(f'Upstream update=none: {submodule} at {revision.decode("ascii")}')
+                    continue
                 raise ValueError(f'{submodule}: submodule has not been initialized')
             count += 1 + verify_sources(submodule, revision.decode('ascii'))
     return count
