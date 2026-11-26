@@ -8,6 +8,9 @@ env:
   PROBE_SHA256: 9fd7b7bdc931fea51f57a1cb59bef618ff287f56bd547538bdd0a07dd02aac9a
 jobs:
   runner-and-upload:
+    if: github.repository == 'dimadr/tdesktop' && github.ref == 'refs/heads/telegramita/7.4.6-preflight'
+    permissions:
+      contents: write
     runs-on: windows-2025-vs2026
     timeout-minutes: 10
     steps:
@@ -59,8 +62,12 @@ jobs:
           New-Item -ItemType Directory -Path $dir -Force | Out-Null
           $sample = Join-Path $dir 'cache-transfer-probe.zip'
           $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/assets/$env:PROBE_ASSET"
-          & curl.exe -fsSL --retry 2 --max-time 60 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/octet-stream' --write-out 'Draft transfer: %{size_download} bytes in %{time_total}s (%{speed_download} B/s)\n' -o $sample $uri
-          if ($LASTEXITCODE -ne 0 -or (Get-FileHash $sample).Hash -ne $env:PROBE_SHA256) { throw 'Draft asset restore or hash verification failed' }
+          & curl.exe -sSL --fail-with-body --retry 2 --max-time 60 -H "Authorization: Bearer $env:GH_TOKEN" -H 'Accept: application/octet-stream' --write-out 'Draft transfer: %{size_download} bytes in %{time_total}s (%{speed_download} B/s)\n' -o $sample $uri
+          if ($LASTEXITCODE -ne 0) {
+            try { $message = (Get-Content -Raw $sample | ConvertFrom-Json).message; if ($message) { Write-Host "GitHub: $message" } } catch {}
+            throw 'Draft asset download failed'
+          }
+          if ((Get-FileHash $sample).Hash -ne $env:PROBE_SHA256) { throw 'Draft asset hash verification failed' }
       - name: Save the sample in Actions cache
         uses: actions/cache/save@v6
         with:
