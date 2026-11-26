@@ -61,6 +61,7 @@ usedPrefix = os.path.realpath(os.path.join(libsDir, 'local'))
 
 optionsList = [
     'skip-release',
+    'reuse-stages',
     'build-stackwalk',
     'qt-asserts',
 ]
@@ -464,7 +465,7 @@ def runStages():
         print(prefix + ': ', end = '', flush=True)
         stage['key'] = computeCacheKey(stage)
         commands = removeDir(stage['name']) + '\n' + stage['commands']
-        checkResult = 'Forced' if len(onlyStages) > 0 else checkCacheKey(stage)
+        checkResult = 'Forced' if len(onlyStages) > 0 and 'reuse-stages' not in options else checkCacheKey(stage)
         if checkResult == 'Good':
             print('SKIPPING')
             continue
@@ -1706,10 +1707,8 @@ win:
     )
     cd ..
 
-    SET CONFIGURATIONS=-debug
+    SET CONFIGURATIONS=-release
     SET ASSERTS=
-release:
-    SET CONFIGURATIONS=-debug-and-release
 win_asserts:
     SET ASSERTS=-force-asserts
 win:
@@ -1764,10 +1763,8 @@ win:
         -D LCMS2_INCLUDE_DIR="%LCMS2_DIR%\\include" ^
         -D LCMS2_LIBRARIES="%LCMS2_DIR%\\out\\Release\\src\\liblcms2.a"
 
-    cmake --build . --config Debug
-    cmake --install . --config Debug
-    cmake --build .
-    cmake --install .
+    cmake --build . --config Release
+    cmake --install . --config Release
 """)
 
 stage('tg_owt', """

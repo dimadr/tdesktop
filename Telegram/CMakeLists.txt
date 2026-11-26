@@ -663,6 +663,8 @@ PRIVATE
     core/launcher.h
     core/local_url_handlers.cpp
     core/local_url_handlers.h
+    core/mieru_manager.cpp
+    core/mieru_manager.h
     core/phone_click_handler.cpp
     core/phone_click_handler.h
     core/private_temp_directory.h
@@ -3158,6 +3160,29 @@ if (APPLE
     OR WIN32
     OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(cmake/telegram_widget_helper.cmake)
+endif()
+
+if (WIN32)
+    if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE)
+        message(FATAL_ERROR
+            "Telegramita requires -DDESKTOP_APP_DISABLE_AUTOUPDATE=ON")
+    endif()
+    set(telegramita_mieru_binary
+        ${CMAKE_SOURCE_DIR}/tools/mieru/3.40.0/mieru.exe)
+    if (NOT EXISTS ${telegramita_mieru_binary})
+        message(FATAL_ERROR
+            "Telegramita requires local Mieru 3.40.0 at ${telegramita_mieru_binary}")
+    endif()
+    file(SHA256 ${telegramita_mieru_binary} telegramita_mieru_sha256)
+    if (NOT telegramita_mieru_sha256 STREQUAL
+            "c120fe9389e034ac2c9a405faf58e99bf3a7a5ea9075808be20622fc6494bf0b")
+        message(FATAL_ERROR
+            "Telegramita local Mieru binary does not match version 3.40.0")
+    endif()
+    add_custom_command(TARGET Telegram POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${telegramita_mieru_binary}
+            $<TARGET_FILE_DIR:Telegram>/mieru.exe)
 endif()
 
 if (NOT DESKTOP_APP_DISABLE_AUTOUPDATE AND NOT build_macstore AND NOT build_winstore)

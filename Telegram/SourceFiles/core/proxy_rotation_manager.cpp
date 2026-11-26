@@ -154,7 +154,8 @@ void ProxyRotationManager::updateProbeOrder() {
 	const auto canCheck = [&](int index) {
 		return index >= 0
 			&& index < int(settings.list().size())
-			&& settings.list()[index].type != MTP::ProxyData::Type::Web;
+			&& settings.list()[index].type != MTP::ProxyData::Type::Web
+			&& settings.list()[index].type != MTP::ProxyData::Type::Mieru;
 	};
 	_probeOrder.clear();
 	_probeOrder.reserve(settings.list().size());

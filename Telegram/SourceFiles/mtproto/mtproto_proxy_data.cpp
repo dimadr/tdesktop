@@ -19,6 +19,23 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace MTP {
 namespace {
 
+[[nodiscard]] bool ValidMieruPortRange(
+		const QString &range,
+		uint32 firstPort) {
+	if (range.isEmpty()) {
+		return true;
+	}
+	static const auto Expression = QRegularExpression(
+		u"^([1-9][0-9]{0,4})-([1-9][0-9]{0,4})$"_q);
+	const auto match = Expression.match(range);
+	if (!match.hasMatch()) {
+		return false;
+	}
+	const auto first = match.captured(1).toUInt();
+	const auto last = match.captured(2).toUInt();
+	return first == firstPort && first <= last && last <= 65535;
+}
+
 [[nodiscard]] bool IsHexMtprotoPassword(const QString &password) {
 	const auto size = password.size();
 	if (size < 32 || size % 2 == 1) {
@@ -497,6 +514,13 @@ ProxyData::Status ProxyData::status() const {
 		return Status::Invalid;
 	} else if (type == Type::Mtproto) {
 		return MtprotoPasswordStatus(password);
+	} else if (type == Type::Mieru) {
+		if (port > 65535
+			|| user.isEmpty()
+			|| password.isEmpty()
+			|| !ValidMieruPortRange(mieruPortRange, port)) {
+			return Status::Invalid;
+		}
 	}
 	return Status::Valid;
 }
@@ -537,7 +561,10 @@ bool ProxyData::operator==(const ProxyData &other) const {
 		&& (host == other.host)
 		&& (port == other.port)
 		&& (user == other.user)
-		&& (password == other.password);
+		&& (password == other.password)
+		&& (type != Type::Mieru
+			|| (mieruTransport == other.mieruTransport
+				&& mieruPortRange == other.mieruPortRange));
 }
 
 bool ProxyData::operator!=(const ProxyData &other) const {
@@ -564,7 +591,9 @@ ProxyData ToDirectIpProxy(const ProxyData &proxy, int ipIndex) {
 		proxy.resolvedIPs[ipIndex],
 		proxy.port,
 		proxy.user,
-		proxy.password
+		proxy.password,
+		proxy.mieruTransport,
+		proxy.mieruPortRange
 	};
 }
 
@@ -574,6 +603,11 @@ QNetworkProxy ToNetworkProxy(const ProxyData &proxy) {
 	} else if (proxy.type == ProxyData::Type::Mtproto
 		|| proxy.type == ProxyData::Type::Web) {
 		return QNetworkProxy::NoProxy;
+	} else if (proxy.type == ProxyData::Type::Mieru) {
+		return QNetworkProxy(
+			QNetworkProxy::Socks5Proxy,
+			u"127.0.0.1"_q,
+			1);
 	}
 	return QNetworkProxy(
 		(proxy.type == ProxyData::Type::Socks5

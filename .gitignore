@@ -74,3 +74,8 @@ settings.local.json
 
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/
+
+# Local fixed-version Mieru runtime copied into Windows builds.
+/tools/mieru/*/mieru.exe
+/tools/mieru/*/*.zip
+/tools/mieru/*/*.sha256.txt

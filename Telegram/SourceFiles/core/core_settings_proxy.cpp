@@ -53,9 +53,23 @@ namespace {
 		case 2: return MTP::ProxyData::Type::Http;
 		case 3: return MTP::ProxyData::Type::Mtproto;
 		case 4: return MTP::ProxyData::Type::Web;
+		case 5: return MTP::ProxyData::Type::Mieru;
 		}
 		return MTP::ProxyData::Type::None;
 	}();
+	if (!stream.atEnd()) {
+		qint32 transport = 0;
+		stream >> transport;
+		using Transport = MTP::ProxyData::MieruTransport;
+		proxy.mieruTransport = (transport == 1)
+			? Transport::Udp
+			: (transport == 2)
+			? Transport::TcpAndUdp
+			: Transport::Tcp;
+	}
+	if (!stream.atEnd()) {
+		stream >> proxy.mieruPortRange;
+	}
 	return proxy;
 }
 
@@ -65,7 +79,9 @@ namespace {
 		+ Serialize::stringSize(proxy.host)
 		+ 1 * sizeof(qint32)
 		+ Serialize::stringSize(proxy.user)
-		+ Serialize::stringSize(proxy.password);
+		+ Serialize::stringSize(proxy.password)
+		+ 1 * sizeof(qint32)
+		+ Serialize::stringSize(proxy.mieruPortRange);
 
 	result.reserve(size);
 	{
@@ -76,6 +92,7 @@ namespace {
 			case MTP::ProxyData::Type::Http: return 2;
 			case MTP::ProxyData::Type::Mtproto: return 3;
 			case MTP::ProxyData::Type::Web: return 4;
+			case MTP::ProxyData::Type::Mieru: return 5;
 			}
 			Unexpected("Bad type in SerializeProxyData");
 		}();
@@ -87,7 +104,9 @@ namespace {
 			<< proxy.host
 			<< qint32(proxy.port)
 			<< proxy.user
-			<< proxy.password;
+			<< proxy.password
+			<< qint32(proxy.mieruTransport)
+			<< proxy.mieruPortRange;
 	}
 	return result;
 }

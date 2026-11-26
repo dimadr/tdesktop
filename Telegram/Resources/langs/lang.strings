@@ -1319,6 +1319,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_proxy_web_host_ph" = "proxy.example.com";
 "lng_proxy_credentials_optional" = "Credentials (optional)";
 "lng_proxy_credentials" = "Credentials";
+"lng_proxy_mieru_transport" = "Mieru transport";
 "lng_proxy_description" = "Your saved proxy list will be here.";
 "lng_proxy_sponsor" = "Proxy sponsor";
 "lng_proxy_sponsor_about" = "This channel is shown by your proxy server.\nTo remove this channel from your chat list,\ndisable the proxy in Telegram Settings.";

@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/sandbox.h"
 #include "core/local_url_handlers.h"
 #include "core/launcher.h"
+#include "core/mieru_manager.h"
 #include "core/proxy_rotation_manager.h"
 #include "core/ui_integration.h"
 #include "core/version.h"
@@ -161,7 +162,9 @@ struct Application::Private {
 	base::Timer quitTimer;
 	UiIntegration uiIntegration;
 	Settings settings;
+	std::unique_ptr<MieruManager> mieru;
 	std::unique_ptr<ProxyRotationManager> proxyRotation;
+	MTP::ProxyData effectiveProxy;
 };
 
 Application::Application()
@@ -191,6 +194,9 @@ Application::Application()
 , _autoLockTimer([=] { checkAutoLock(); }) {
 	Ui::Integration::Set(&_private->uiIntegration);
 	_private->proxyRotation = std::make_unique<ProxyRotationManager>();
+	_private->mieru = std::make_unique<MieruManager>([=] {
+		applyEffectiveProxy();
+	});
 
 	_platformIntegration->init();
 
@@ -289,6 +295,7 @@ Application::~Application() {
 
 	_private->proxyRotation = nullptr;
 	_domain->finish();
+	_private->mieru = nullptr;
 	MTP::WebProxy::Transport::Shutdown();
 
 	Local::finish();
@@ -914,13 +921,9 @@ void Application::setCurrentProxy(
 		const MTP::ProxyData &proxy,
 		MTP::ProxyData::Settings settings) {
 	auto &my = _private->settings.proxy();
-	const auto current = [&] {
-		return my.isEnabled() ? my.selected() : MTP::ProxyData();
-	};
-	const auto was = current();
 	my.setSelected(proxy);
 	my.setSettings(settings);
-	const auto now = current();
+	const auto now = my.isEnabled() ? my.selected() : MTP::ProxyData();
 	if (_badProxyConfiguration && *_badProxyConfiguration != now) {
 		_badProxyConfiguration.reset();
 		if (const auto box = base::take(_badProxyDisableBox)) {
@@ -928,9 +931,16 @@ void Application::setCurrentProxy(
 		}
 	}
 	refreshGlobalProxy();
-	_proxyChanges.fire({ was, now });
 	my.connectionTypeChangesNotify();
 	proxyRotationSettingsChanged();
+}
+
+MTP::ProxyData Application::effectiveProxy() const {
+	return _private->effectiveProxy;
+}
+
+bool Application::mieruProxyFailed() const {
+	return _private->mieru->state() == MieruManager::State::Failed;
 }
 
 void Application::proxyRotationSettingsChanged() {
@@ -2084,15 +2094,32 @@ void Application::postponeCall(FnMut<void()> &&callable) {
 
 void Application::refreshGlobalProxy() {
 	const auto &proxySettings = settings().proxy();
-	const auto proxy = proxySettings.isEnabled()
+	_private->mieru->setProxy(
+		proxySettings.selected(),
+		proxySettings.isEnabled());
+	applyEffectiveProxy();
+}
+
+void Application::applyEffectiveProxy() {
+	const auto &proxySettings = settings().proxy();
+	const auto selected = proxySettings.isEnabled()
 		? proxySettings.selected()
 		: MTP::ProxyData();
+	const auto proxy = (selected.type == MTP::ProxyData::Type::Mieru)
+		? _private->mieru->proxy()
+		: selected;
+	const auto was = _private->effectiveProxy;
+	_private->effectiveProxy = proxy;
 	if (proxy.type == MTP::ProxyData::Type::Web && proxy.valid()) {
 		MTP::WebProxy::Transport::Activate(proxy);
 	} else {
 		MTP::WebProxy::Transport::Deactivate();
 	}
 	Sandbox::Instance().refreshGlobalProxy();
+	if (was != proxy) {
+		_proxyChanges.fire({ was, proxy });
+		settings().proxy().connectionTypeChangesNotify();
+	}
 }
 
 void QuitAttempt() {

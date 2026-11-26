@@ -23,6 +23,12 @@ struct ProxyData {
 		Http,
 		Mtproto,
 		Web,
+		Mieru,
+	};
+	enum class MieruTransport {
+		Tcp,
+		Udp,
+		TcpAndUdp,
 	};
 	enum class Status {
 		Valid,
@@ -35,6 +41,8 @@ struct ProxyData {
 	QString host;
 	uint32 port = 0;
 	QString user, password;
+	MieruTransport mieruTransport = MieruTransport::Tcp;
+	QString mieruPortRange;
 
 	std::vector<QString> resolvedIPs;
 	crl::time resolvedExpireAt = 0;

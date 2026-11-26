@@ -1242,7 +1242,7 @@ void Call::createAndStartController(const MTPDphoneCall &call) {
 		const auto &settingsProxy = Core::App().settings().proxy();
 		using ProxyData = MTP::ProxyData;
 		if (settingsProxy.useProxyForCalls() && settingsProxy.isEnabled()) {
-			const auto &selected = settingsProxy.selected();
+			const auto selected = Core::App().effectiveProxy();
 			if (selected.supportsCalls() && !selected.host.isEmpty()) {
 				Assert(selected.type == ProxyData::Type::Socks5);
 				descriptor.proxy = std::make_unique<tgcalls::Proxy>();

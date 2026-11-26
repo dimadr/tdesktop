@@ -716,7 +716,7 @@ void Sandbox::refreshGlobalProxy() {
 	const auto proxy = !Core::IsAppLaunched()
 		? _sandboxProxy
 		: Core::App().settings().proxy().isEnabled()
-		? Core::App().settings().proxy().selected()
+		? Core::App().effectiveProxy()
 		: MTP::ProxyData();
 	if (proxy.type == MTP::ProxyData::Type::Socks5
 		|| proxy.type == MTP::ProxyData::Type::Http) {

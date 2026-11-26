@@ -68,6 +68,68 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include <QtGui/QClipboard>
 #include <QtWidgets/QTextEdit>
 
+namespace Ui {
+
+class ProxyPortInput final : public MaskedInputField {
+public:
+	ProxyPortInput(
+		QWidget *parent,
+		const style::InputField &st,
+		rpl::producer<QString> placeholder,
+		const QString &value,
+		bool rangeMode)
+	: MaskedInputField(parent, st, std::move(placeholder), value)
+	, _rangeMode(rangeMode) {
+		setInputMethodHints(Qt::ImhPreferNumbers | Qt::ImhNoPredictiveText);
+	}
+
+	void setRangeMode(bool enabled) {
+		if (_rangeMode == enabled) {
+			return;
+		}
+		_rangeMode = enabled;
+		if (!enabled) {
+			const auto value = getLastText();
+			const auto separator = value.indexOf('-');
+			if (separator >= 0) {
+				setText(value.left(separator));
+			}
+		}
+	}
+
+protected:
+	void correctValue(
+			const QString &was,
+			int wasCursor,
+			QString &now,
+			int &nowCursor) override {
+		auto result = QString();
+		result.reserve(now.size());
+		auto cursor = nowCursor;
+		auto separatorAdded = false;
+		for (auto i = 0; i != now.size(); ++i) {
+			const auto ch = now[i];
+			const auto accepted = ch.isDigit()
+				|| (_rangeMode
+					&& ch == '-'
+					&& !separatorAdded
+					&& !result.isEmpty());
+			if (accepted) {
+				result.append(ch);
+				separatorAdded = separatorAdded || (ch == '-');
+			} else if (i < nowCursor) {
+				--cursor;
+			}
+		}
+		setCorrectedText(now, nowCursor, result, cursor);
+	}
+
+private:
+	bool _rangeMode = false;
+};
+
+} // namespace Ui
+
 namespace {
 
 constexpr auto kSaveSettingsDelayedTimeout = crl::time(1000);
@@ -126,7 +188,8 @@ struct TopButtonMenuState {
 		case Type::Mtproto: return u"proxy"_q;
 		case Type::Web: return u"webproxy"_q;
 		case Type::None:
-		case Type::Http: return QString();
+		case Type::Http:
+		case Type::Mieru: return QString();
 		}
 		Unexpected("Proxy type in ProxyDataToQueryPath.");
 	}();
@@ -753,6 +816,7 @@ public:
 
 private:
 	using Type = ProxyData::Type;
+	using MieruTransport = ProxyData::MieruTransport;
 
 	void prepare() override;
 	void setInnerFocus() override {
@@ -773,6 +837,7 @@ private:
 	void setupWebAddress(const ProxyData &data);
 	void setupCredentials(const ProxyData &data);
 	void setupMtprotoCredentials(const ProxyData &data);
+	void setupMieruTransport(const ProxyData &data);
 
 	void addLabel(
 		not_null<Ui::VerticalLayout*> parent,
@@ -785,10 +850,11 @@ private:
 	object_ptr<Ui::VerticalLayout> _content;
 
 	std::shared_ptr<Ui::RadioenumGroup<Type>> _type;
+	std::shared_ptr<Ui::RadioenumGroup<MieruTransport>> _mieruTransport;
 
 	QPointer<Ui::SlideWrap<>> _aboutSponsored;
 	QPointer<HostInput> _host;
-	QPointer<Ui::NumberInput> _port;
+	QPointer<Ui::ProxyPortInput> _port;
 	QPointer<Ui::InputField> _user;
 	QPointer<Ui::PasswordInput> _password;
 	QPointer<Base64UrlInput> _secret;
@@ -798,6 +864,7 @@ private:
 	QPointer<Ui::SlideWrap<Ui::VerticalLayout>> _webAddress;
 	QPointer<Ui::SlideWrap<Ui::VerticalLayout>> _credentials;
 	QPointer<Ui::SlideWrap<Ui::VerticalLayout>> _mtprotoCredentials;
+	QPointer<Ui::SlideWrap<Ui::VerticalLayout>> _mieruTransportSection;
 
 };
 
@@ -1953,15 +2020,20 @@ ProxyData ProxyBox::collectData() {
 	result.host = web
 		? QString()
 		: _host->getLastText().trimmed();
+	const auto port = _port->getLastText().trimmed();
 	result.port = web
 		? 443
-		: _port->getLastText().trimmed().toInt();
+		: port.section('-', 0, 0).toUInt();
 	result.user = (result.type == Type::Mtproto || web)
 		? QString()
 		: _user->getLastText();
 	result.password = (result.type == Type::Mtproto || web)
 		? _secret->getLastText()
 		: _password->getLastText();
+	if (result.type == Type::Mieru) {
+		result.mieruTransport = _mieruTransport->current();
+		result.mieruPortRange = port.contains('-') ? port : QString();
+	}
 	if (web) {
 		result.setWebAddress(_webHost->getLastText());
 	}
@@ -1976,6 +2048,10 @@ ProxyData ProxyBox::collectData() {
 	} else if ((result.type == Type::Http || result.type == Type::Socks5)
 		&& !result.password.isEmpty() && result.user.isEmpty()) {
 		_user->showError();
+	} else if (result.type == Type::Mieru && result.user.isEmpty()) {
+		_user->showError();
+	} else if (result.type == Type::Mieru && result.password.isEmpty()) {
+		_password->showError();
 	} else if ((result.type == Type::Mtproto || web) && !result.valid()) {
 		_secret->showError();
 	} else if (!result) {
@@ -1996,6 +2072,7 @@ void ProxyBox::setupTypes() {
 		{ Type::Socks5, u"SOCKS5"_q },
 		{ Type::Http, u"HTTP"_q },
 		{ Type::Web, u"WEB"_q },
+		{ Type::Mieru, u"MIERU"_q },
 	};
 	for (const auto &[type, label] : types) {
 		_content->add(
@@ -2040,12 +2117,16 @@ void ProxyBox::setupSocketAddress(const ProxyData &data) {
 		st::connectionHostInputField,
 		tr::lng_connection_host_ph(),
 		data.host);
-	_port = Ui::CreateChild<Ui::NumberInput>(
+	const auto port = (data.type == Type::Mieru
+		&& !data.mieruPortRange.isEmpty())
+		? data.mieruPortRange
+		: (data.port ? QString::number(data.port) : QString());
+	_port = Ui::CreateChild<Ui::ProxyPortInput>(
 		address,
 		st::connectionPortInputField,
 		tr::lng_connection_port_ph(),
-		data.port ? QString::number(data.port) : QString(),
-		65535);
+		port,
+		data.type == Type::Mieru);
 	{
 		// The field is at least as wide as its placeholder.
 		const auto &st = st::connectionPortInputField;
@@ -2094,7 +2175,18 @@ void ProxyBox::setupCredentials(const ProxyData &data) {
 			_content,
 			object_ptr<Ui::VerticalLayout>(_content)));
 	const auto credentials = _credentials->entity();
-	addLabel(credentials, tr::lng_proxy_credentials_optional(tr::now));
+	auto title = _type->value(
+	) | rpl::map([](Type type) {
+		return (type == Type::Mieru)
+			? tr::lng_proxy_credentials(tr::now)
+			: tr::lng_proxy_credentials_optional(tr::now);
+	});
+	credentials->add(
+		object_ptr<Ui::FlatLabel>(
+			credentials,
+			std::move(title),
+			st::proxyEditTitle),
+		st::proxyEditTitlePadding);
 	_user = credentials->add(
 		object_ptr<Ui::InputField>(
 			credentials,
@@ -2123,6 +2215,31 @@ void ProxyBox::setupCredentials(const ProxyData &data) {
 		_password->resize(width, _password->height());
 	}, _password->lifetime());
 	credentials->add(std::move(passwordWrap), st::proxyEditInputPadding);
+}
+
+void ProxyBox::setupMieruTransport(const ProxyData &data) {
+	_mieruTransportSection = _content->add(
+		object_ptr<Ui::SlideWrap<Ui::VerticalLayout>>(
+			_content,
+			object_ptr<Ui::VerticalLayout>(_content)));
+	const auto content = _mieruTransportSection->entity();
+	addLabel(content, tr::lng_proxy_mieru_transport(tr::now));
+	_mieruTransport = std::make_shared<
+		Ui::RadioenumGroup<MieruTransport>>(data.mieruTransport);
+	const auto types = std::vector<std::pair<MieruTransport, QString>>{
+		{ MieruTransport::Tcp, u"TCP"_q },
+		{ MieruTransport::Udp, u"UDP"_q },
+		{ MieruTransport::TcpAndUdp, u"TCP+UDP"_q },
+	};
+	for (const auto &[type, label] : types) {
+		content->add(
+			object_ptr<Ui::Radioenum<MieruTransport>>(
+				content,
+				_mieruTransport,
+				type,
+				label),
+			st::proxyEditTypePadding);
+	}
 }
 
 void ProxyBox::setupMtprotoCredentials(const ProxyData &data) {
@@ -2167,16 +2284,22 @@ void ProxyBox::setupControls(const ProxyData &data) {
 	setupWebAddress(data);
 	setupCredentials(data);
 	setupMtprotoCredentials(data);
+	setupMieruTransport(data);
 
 	const auto handleType = [=](Type type) {
 		const auto web = (type == Type::Web);
-		const auto credentialsShown
-			= (type == Type::Http || type == Type::Socks5);
+		const auto credentialsShown = (type == Type::Http
+			|| type == Type::Socks5
+			|| type == Type::Mieru);
 		const auto mtprotoShown = (type == Type::Mtproto || web);
 		_socketAddress->toggle(!web, anim::type::instant);
 		_webAddress->toggle(web, anim::type::instant);
 		_credentials->toggle(credentialsShown, anim::type::instant);
 		_mtprotoCredentials->toggle(mtprotoShown, anim::type::instant);
+		_mieruTransportSection->toggle(
+			type == Type::Mieru,
+			anim::type::instant);
+		_port->setRangeMode(type == Type::Mieru);
 		_aboutSponsored->toggle(mtprotoShown, anim::type::instant);
 		const auto credentialsPolicy = credentialsShown
 			? Qt::StrongFocus
@@ -2375,16 +2498,20 @@ void ProxiesBoxController::ShowApplyConfirmation(
 			add(displayServer, tr::lng_proxy_box_server());
 		}
 		if (type != Type::Web) {
-			add(QString::number(proxy.port), tr::lng_proxy_box_port());
+			add(
+				(type == Type::Mieru && !proxy.mieruPortRange.isEmpty())
+					? proxy.mieruPortRange
+					: QString::number(proxy.port),
+				tr::lng_proxy_box_port());
 		}
-		if (type == Type::Socks5) {
+		if (type == Type::Socks5 || type == Type::Mieru) {
 			add(proxy.user, tr::lng_proxy_box_username());
 			add(proxy.password, tr::lng_proxy_box_password());
 		} else if (type == Type::Mtproto || type == Type::Web) {
 			add(proxy.password, tr::lng_proxy_box_secret());
 		}
 
-		if (type != Type::Web) {
+		if (type != Type::Web && type != Type::Mieru) {
 			struct ProxyCheckStatusState {
 				Checker v4;
 				Checker v6;
@@ -2537,7 +2664,8 @@ auto ProxiesBoxController::proxySettingsValue() const
 }
 
 void ProxiesBoxController::refreshChecker(Item &item) {
-	if (item.data.type == Type::Web) {
+	if (item.data.type == Type::Web
+		|| item.data.type == Type::Mieru) {
 		MTP::ResetProxyCheckers(item.checker, item.checkerv6);
 		item.state = ItemState::NotTested;
 		item.ping = 0;
@@ -2935,6 +3063,8 @@ void ProxiesBoxController::updateView(const Item &item) {
 		case Type::Socks5: return u"SOCKS5"_q;
 		case Type::Mtproto: return u"MTPROTO"_q;
 		case Type::Web: return u"WEB"_q;
+		case Type::Mieru: return u"MIERU"_q;
+		case Type::None: break;
 		}
 		Unexpected("Proxy type in ProxiesBoxController::updateView.");
 	}();
@@ -2955,6 +3085,9 @@ void ProxiesBoxController::updateView(const Item &item) {
 				return ItemState::Connecting;
 			}
 			Unexpected("Web proxy transport state.");
+		} else if (item.data.type == Type::Mieru
+			&& Core::App().mieruProxyFailed()) {
+			return ItemState::Unavailable;
 		} else if (_account->mtp().dcstate() == MTP::ConnectedState) {
 			return ItemState::Online;
 		}

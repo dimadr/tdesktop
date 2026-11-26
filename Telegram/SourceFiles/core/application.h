@@ -235,6 +235,8 @@ public:
 	void setCurrentProxy(
 		const MTP::ProxyData &proxy,
 		MTP::ProxyData::Settings settings);
+	[[nodiscard]] MTP::ProxyData effectiveProxy() const;
+	[[nodiscard]] bool mieruProxyFailed() const;
 	void proxyRotationSettingsChanged();
 	void checkProxyRotation(not_null<Main::Account*> account, int32 state);
 	[[nodiscard]] rpl::producer<ProxyChange> proxyChanges() const;
@@ -343,6 +345,7 @@ public:
 	// Sandbox interface.
 	void postponeCall(FnMut<void()> &&callable);
 	void refreshGlobalProxy();
+	void applyEffectiveProxy();
 	void refreshApplicationIcon();
 
 	void quitPreventFinished();

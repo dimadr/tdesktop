@@ -50,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/power_saving.h"
 #include "ui/cached_round_corners.h"
 #include "ui/gl/gl_window.h"
+#include "ui/gl/gl_detection.h"
 #include "ui/boxes/confirm_box.h"
 #include "ui/ui_utility.h"
 #include "info/info_memento.h"
@@ -142,6 +143,19 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 namespace Media {
 namespace View {
 namespace {
+
+[[nodiscard]] Ui::GL::Backend ChooseMediaViewBackend(
+		Ui::GL::Capabilities capabilities) {
+	const auto backend = Ui::GL::ChooseBackendDefault(capabilities);
+	if constexpr (Platform::IsWindows()
+		&& QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)) {
+		if (backend == Ui::GL::Backend::OpenGL
+			&& Ui::GL::WidgetsRhiEnabled()) {
+			return Ui::GL::Backend::Raster;
+		}
+	}
+	return backend;
+}
 
 [[nodiscard]] int LayoutIndependentKey(not_null<QKeyEvent*> e) {
 	if constexpr (Platform::IsWindows()) {
@@ -661,7 +675,9 @@ OverlayWidget::PipWrap::PipWrap(
 }
 
 OverlayWidget::OverlayWidget()
-: _wrap(std::make_unique<Ui::GL::Window>(Ui::GL::Window::Translucent::Yes))
+: _wrap(std::make_unique<Ui::GL::Window>(
+	ChooseMediaViewBackend,
+	Ui::GL::Window::Translucent::Yes))
 , _window(_wrap->window())
 , _helper(Platform::CreateOverlayWidgetHelper(_window.get(), [=](bool maximized) {
 	toggleFullScreen(maximized);
