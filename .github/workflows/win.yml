@@ -11,6 +11,10 @@ jobs:
     runs-on: windows-2025-vs2026
     timeout-minutes: 10
     steps:
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
       - name: Measure available volumes and check the x64 toolchain
         shell: pwsh
         run: |
@@ -45,7 +49,7 @@ jobs:
           if ($initExitCode -ne 0 -or ($toolchain -join "`n") -notmatch '(?m)^VCToolsVersion=14[.]44[.]' -or ($toolchain -join "`n") -notmatch '(?m)^WindowsSDKVersion=10[.]0[.]26100[.]0') { throw 'Required MSVC/SDK versions were not selected' }
           cmake --version
           ninja --version
-          py -3.10 --version
+          python -c 'import sys; assert sys.version_info[:2] == (3, 10); print("Python " + sys.version.split()[0])'
       - name: Read the WD sample from the unpublished draft
         shell: pwsh
         env:
