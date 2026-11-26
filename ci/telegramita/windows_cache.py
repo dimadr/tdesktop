@@ -41,14 +41,17 @@ def checksum(path):
 
 
 def key(group=None):
-    if group in ('base', 'qt'):
+    if group in ('base', 'media', 'rtc', 'rust'):
         files = ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
-                 'Telegram/build/qt_version.py')
-        recipe = hashlib.sha256(b''.join(
+                 'Telegram/build/qt_version.py', 'ci/telegramita/windows.ps1')
+        prepare, *inputs = (
             (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
-        )).hexdigest()
-        if recipe == 'a6a22b8338581820e0fe800cc2be858401103b1f7ccdd732d3a3449dc803f696':
-            return '0b7d5e5523e6a51dbb244a13'
+        )
+        qt_start = prepare.index(b"stage('qt_' + qt")
+        qt_end = prepare.index(b"stage('tg_owt'", qt_start)
+        recipe = hashlib.sha256(b''.join([prepare[:qt_start], prepare[qt_end:], *inputs]))
+        if recipe.hexdigest() == '1e42bc02be42eb9ae078a3b26b50d57af08ecc8231da6e97ca87a0c42ec1b0fb':
+            return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
     digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-release-d-build-v1')
     for name in ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
                  'Telegram/build/qt_version.py', 'ci/telegramita/windows_cache.py',
