@@ -31,7 +31,13 @@ function Invoke-Native([string[]]$Commands, [string]$Name) {
     Write-Host "Starting $Name"
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $lastReport = 0.0
-    $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c',$batch -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.stderr"
+    $cacheToken = $env:GH_TOKEN
+    try {
+        Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+        $proc = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d','/c',$batch -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.stderr"
+    } finally {
+        $env:GH_TOKEN = $cacheToken
+    }
     while (-not $proc.WaitForExit(4000)) {
         if ($clock.Elapsed.TotalSeconds - $lastReport -ge 90) {
             $lastReport = $clock.Elapsed.TotalSeconds

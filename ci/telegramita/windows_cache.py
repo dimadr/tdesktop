@@ -51,7 +51,7 @@ def key():
 
 def curl(url, output, *args, upload=False):
     token = os.environ['GH_TOKEN']
-    if not token or not all(c.isalnum() or c in '_-' for c in token):
+    if not token or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~+/=' for c in token):
         raise ValueError('Invalid GitHub credential format')
     host = urllib.parse.urlparse(url).hostname
     if host not in ('api.github.com', 'uploads.github.com'):
