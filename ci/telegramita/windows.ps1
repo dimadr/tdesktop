@@ -109,7 +109,7 @@ if ($Group -ne 'app') {
 $sourceRevision = & python $cache verify-sources
 if ($LASTEXITCODE -ne 0) { throw 'Pinned submodule verification failed' }
 $sourceRevision | Write-Host
-if (!(Select-String -Quiet -Path "$source\Telegram\build\version" -Pattern '^AppVersionStr\s+7\.4\.6\s*$')) { throw 'Wrong Telegram version' }
+if (!(Select-String -Quiet -Path "$source\Telegram\build\version" -Pattern '^AppVersionStr\s+7\.4\.7\s*$')) { throw 'Wrong Telegram version' }
 $zip = Join-Path $scratch 'mieru.zip'
 $mieru = Join-Path $source 'tools\mieru\3.40.0'
 $uri = 'https://github.com/enfein/mieru/releases/download/v3.40.0/mieru_3.40.0_windows_amd64.zip'
@@ -159,12 +159,12 @@ if (Compare-Object $before $after -SyncWindow 0) { throw 'No-op changed an objec
 $release = Join-Path $build 'Release'
 $files = @('Telegram.exe','mieru.exe','modules\x64\TelegramWidgetHelper.exe','modules\x64\d3d\d3dcompiler_47.dll')
 foreach ($relative in $files) { Assert-PeX64 (Join-Path $release $relative) }
-if ((Get-Item "$release\Telegram.exe").VersionInfo.ProductVersion -notmatch '^7\.4\.6(?:\.0)?$') { throw 'Telegram product version mismatch' }
+if ((Get-Item "$release\Telegram.exe").VersionInfo.ProductVersion -notmatch '^7\.4\.7(?:\.0)?$') { throw 'Telegram product version mismatch' }
 if ((Get-FileHash "$release\mieru.exe").Hash -ne $expectedMieru) { throw 'Packaged Mieru has a different hash' }
 Invoke-Native @("dumpbin /dependents $release\Telegram.exe",'exit /b %ERRORLEVEL%') 'imports'
 if (Select-String -Path "$scratch\imports.log" -Quiet -Pattern '^\s+(Qt6\S+|VCRUNTIME\S+|MSVCP\S+)\.dll\s*$') { throw 'Unexpected dynamic Qt/MSVC dependency' }
 
-$portable = Join-Path $root 'Telegramita-7.4.6-win64-portable'
+$portable = Join-Path $root 'Telegramita-7.4.7-win64-portable'
 $deliver = Join-Path $root 'deliver'
 New-Item -ItemType Directory -Path $portable,$deliver | Out-Null
 $manifest = [ordered]@{}
@@ -176,14 +176,14 @@ Measure-Step 'package' {
         $manifest[$relative.Replace('\','/')] = (Get-FileHash $dest).Hash
     }
     $manifest | ConvertTo-Json | Set-Content -LiteralPath "$portable\SHA256.json" -Encoding utf8
-    Compress-Archive -LiteralPath $portable -DestinationPath "$deliver\Telegramita-7.4.6-win64-portable.zip" -CompressionLevel Fastest
+    Compress-Archive -LiteralPath $portable -DestinationPath "$deliver\Telegramita-7.4.7-win64-portable.zip" -CompressionLevel Fastest
 }
 $key = & python $cache key
 if ($LASTEXITCODE -ne 0) { throw 'Could not determine dependency key' }
 [ordered]@{
     build='PASS'; portable='PASS'; cache_restore='PASS'; noop='PASS'; runtime='NOT TESTED'
-    telegramita='7.4.6'; mieru='3.40.0'; qt='6.12.0'; arch='x64'; configuration='Release'
+    telegramita='7.4.7'; mieru='3.40.0'; qt='6.12.0'; arch='x64'; configuration='Release'
     api='upstream test credentials'; source=$env:GITHUB_SHA
-    base='4f0d56441f3ff57e8597b5c89b369a11f84007d3'; cache_key=$key; seconds=$timings
-    files=$manifest; zip_sha256=(Get-FileHash "$deliver\Telegramita-7.4.6-win64-portable.zip").Hash
+    base='85d55638476185e9af32aac888371ef9da06cfb9'; cache_key=$key; qt_patches='b6ab1d68dcb0ddff1f03628c110efc24db123c87'; seconds=$timings
+    files=$manifest; zip_sha256=(Get-FileHash "$deliver\Telegramita-7.4.7-win64-portable.zip").Hash
 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$deliver\report.json" -Encoding utf8

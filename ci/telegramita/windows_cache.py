@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 SOURCE = Path(__file__).resolve().parents[2]
 ROOT = Path('D:/TBuild')
 DRAFT = 459271016
+QT_PATCHES = 'b6ab1d68dcb0ddff1f03628c110efc24db123c87'
 API = 'https://api.github.com/repos/dimadr/tdesktop'
 PART_SIZE = 512 * 1024 * 1024
 STAGES = {
@@ -47,23 +48,25 @@ def key(group=None):
         (SOURCE / name).read_bytes().replace(b'\r\n', b'\n') for name in files
     )
     dependency_runner, separator, _ = runner.partition(b'\n$sourceRevision =')
-    if separator and group in (None, 'qt'):
-        recipe = hashlib.sha256(prepare + msvc + qt + dependency_runner).hexdigest()
-        if recipe == '3c5fecf755c6e5e7855b3a1dc8d4fc60bc295385a3e256218b698d835a09d023':
-            return 'b6300bcdd7b9b1a7f6a85a24'
     if separator and group in ('base', 'media', 'rtc', 'rust'):
         qt_start = prepare.index(b"stage('qt_' + qt")
         qt_end = prepare.index(b"stage('tg_owt'", qt_start)
-        recipe = hashlib.sha256(
-            prepare[:qt_start] + prepare[qt_end:] + msvc + qt + dependency_runner
-        ).hexdigest()
+        non_qt_prepare = (prepare[:qt_start] + prepare[qt_end:]).replace(
+            f'git checkout {QT_PATCHES}'.encode(),
+            b'git checkout 8a28b8433af70771c3d101c776ad837a94bd47ec',
+            1,
+        )
+        recipe = hashlib.sha256(non_qt_prepare + msvc + qt + dependency_runner).hexdigest()
         if recipe == '079ac57872d60ab1317c04ba0cce2c46a83199de1539084c87892f17d5114fb5':
             return '0b7d5e5523e6a51dbb244a13' if group == 'base' else 'faafc07a977dd676a37e2efe'
-    digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-release-d-build-v1')
-    for name in ('Telegram/build/prepare/prepare.py', 'Telegram/build/prepare/msvc.py',
-                 'Telegram/build/qt_version.py', 'ci/telegramita/windows_cache.py',
-                 'ci/telegramita/windows.ps1'):
-        digest.update((SOURCE / name).read_bytes().replace(b'\r\n', b'\n'))
+    digest = hashlib.sha256(b'win64-v143-14.44.35207-sdk-10.0.26100.0-qt-complete-prefix-v1')
+    for data in (prepare, msvc, qt, dependency_runner):
+        digest.update(data)
+    cmake_revision = subprocess.check_output(['git', '-C', str(SOURCE), 'ls-files', '-s', '--', 'cmake'])
+    digest.update(cmake_revision.split()[1])
+    if group not in (None, 'qt'):
+        digest.update(runner)
+        digest.update(Path(__file__).read_bytes().replace(b'\r\n', b'\n'))
     return digest.hexdigest()[:24]
 
 
@@ -108,7 +111,7 @@ def marker(group):
     return f'telegramita-x64-{key(group)}-{group}.json'
 
 
-def ready_group(group, index, work, archive):
+def ready_group(group, index, work, archive, cached=None):
     entry = index.get(marker(group))
     if entry is None:
         return False
@@ -119,6 +122,12 @@ def ready_group(group, index, work, archive):
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
     if manifest['key'] != key(group) or manifest['group'] != group:
         raise ValueError('Incompatible cache manifest')
+    if group == 'qt' and manifest.get('qt_patches') != QT_PATCHES:
+        raise ValueError('Unexpected Qt patch revision in cache manifest')
+    if cached is not None and cached.exists():
+        if cached.stat().st_size != manifest['bytes'] or checksum(cached) != manifest['sha256']:
+            raise ValueError(f'Existing WD cache differs: {cached}')
+        return True
     with archive.open('xb') as out:
         for part in manifest['parts']:
             name = part['name']
@@ -129,7 +138,7 @@ def ready_group(group, index, work, archive):
             with temp.open('rb') as stream:
                 shutil.copyfileobj(stream, out)
             temp.unlink()
-    if checksum(archive) != manifest['sha256']:
+    if archive.stat().st_size != manifest['bytes'] or checksum(archive) != manifest['sha256']:
         raise ValueError(f'Archive checksum mismatch for {group}')
     return True
 
@@ -194,6 +203,14 @@ def selected_files(path, preserve_installation=False):
 
 
 def publish(group, work, upload):
+    if group == 'qt':
+        patches = ROOT / 'Libraries/win64/patches'
+        revision = subprocess.check_output(
+            ['git', '-C', str(patches), 'rev-parse', 'HEAD'], text=True
+        ).strip()
+        if revision != QT_PATCHES:
+            raise ValueError(f'Expected Qt patches {QT_PATCHES}, got {revision}')
+        print(f'QT PATCHES PASS {revision}', flush=True)
     archive = work / f'{group}.zip'
     with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED,
                          compresslevel=1, strict_timestamps=False) as output:
@@ -222,8 +239,11 @@ def publish(group, work, upload):
             fragment.unlink()
             count += 1
     manifest = work / 'manifest.json'
-    manifest.write_text(json.dumps({'group': group, 'key': key(group), 'sha256': checksum(archive),
-                                    'bytes': archive.stat().st_size, 'parts': parts}), encoding='utf-8')
+    metadata = {'group': group, 'key': key(group), 'sha256': checksum(archive),
+                'bytes': archive.stat().st_size, 'parts': parts}
+    if group == 'qt':
+        metadata['qt_patches'] = QT_PATCHES
+    manifest.write_text(json.dumps(metadata), encoding='utf-8')
     send(manifest, marker(group), upload, work)
     print(f'CACHE SAVE {group} {archive.stat().st_size} bytes {key(group)}', flush=True)
 
@@ -276,7 +296,10 @@ def main():
         print(key())
         return
     if options.action == 'stages':
-        print(' '.join(STAGES[options.group]))
+        stages = STAGES[options.group]
+        if options.group == 'qt':
+            stages = ['patches', *stages]
+        print(' '.join(stages))
         return
     group = options.group
     if options.action == 'export':
@@ -314,15 +337,12 @@ def main():
             if group != 'app':
                 print(f'CACHE MISS {group}', flush=True)
         else:
-            for item in STAGES:
+            for item in STAGES if group == 'app' else (group,):
                 archive = work / f'{item}.zip'
-                if not ready_group(item, index, work, archive):
-                    raise ValueError(f'Missing final {item} cache')
                 output = options.destination / f'{key(item)}-{item}.zip'
-                if output.exists():
-                    if checksum(output) != checksum(archive):
-                        raise ValueError(f'Existing WD cache differs: {output}')
-                else:
+                if not ready_group(item, index, work, archive, cached=output):
+                    raise ValueError(f'Missing final {item} cache')
+                if archive.exists():
                     os.link(archive, output)
                 print(f'WD CACHE PASS {output} {output.stat().st_size}', flush=True)
 

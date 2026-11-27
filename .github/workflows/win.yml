@@ -1,4 +1,4 @@
-name: Telegramita 7.4.6 Windows x64 Release
+name: Telegramita 7.4.7 Windows x64 Release
 'on':
   workflow_dispatch:
     inputs:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   base:
-    if: github.repository == 'dimadr/tdesktop' && github.ref == 'refs/heads/telegramita/7.4.6-windows'
+    if: github.repository == 'dimadr/tdesktop' && github.ref == 'refs/heads/telegramita/7.4.7-windows'
     runs-on: windows-2025-vs2026
     timeout-minutes: 300
     permissions:
@@ -180,7 +180,7 @@ jobs:
       - name: Return the verified portable and report
         uses: actions/upload-artifact@v7
         with:
-          name: Telegramita-7.4.6-win64-portable
+          name: Telegramita-7.4.7-win64-portable
           path: D:/TBuild/deliver
           if-no-files-found: error
           compression-level: 0
